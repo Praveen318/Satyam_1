@@ -160,3 +160,93 @@ def check_priority_valid(df):
 
     return invalid_mask, log
 
+
+def check_style_id_in_db(df):
+    import pandas as pd
+    from sshtunnel import SSHTunnelForwarder
+    import psycopg2
+
+    # Initialize log list
+    log = []
+
+    # Column name for Style Id
+    style_id_column = 'Style Id'
+
+    # 1. Check if the required column exists in the DataFrame
+    if style_id_column not in df.columns:
+        log.append(f"Error: Missing column in DataFrame: '{style_id_column}'.")
+        return pd.Series(False, index=df.index), log
+
+    # Initialize error mask
+    error_mask = pd.Series(False, index=df.index)
+
+    # 2. Establish SSH Tunnel to the Procuro Database
+    try:
+        with SSHTunnelForwarder(
+            (SSH_HOST, SSH_PORT),
+            ssh_username=SSH_USERNAME,
+            ssh_pkey=SSH_KEY_PATH,
+            remote_bind_address=(PROCURO_HOST, PROCURO_PORT)
+        ) as tunnel:
+            # 3. Connect to the Procuro Database via the SSH Tunnel
+            conn = psycopg2.connect(
+                host='127.0.0.1',
+                port=tunnel.local_bind_port,
+                database=PROCURO_DATABASE,
+                user=PROCURO_USERNAME,
+                password=PROCURO_PASSWORD
+            )
+            cursor = conn.cursor()
+
+            # 4. Fetch valid style_codes from the COSTING table
+            cursor.execute("SELECT style_code FROM costing WHERE style_code IS NOT NULL;")
+            valid_style_codes = set(row[0].strip() for row in cursor.fetchall())
+
+            # 5. Fetch matching style_id and status from the quotation table
+            cursor.execute("""
+                SELECT style_id, status 
+                FROM quotation 
+                WHERE status IS NOT NULL;
+            """)
+            quotation_data = {
+                row[0]: row[1].strip().lower() for row in cursor.fetchall()
+            }
+
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        log.append(f"Database connection error: {e}")
+        return error_mask, log
+
+    # 6. Check for null Style Id values in Excel
+    null_mask = df[style_id_column].isnull()
+    null_count = null_mask.sum()
+    if null_mask.any():
+        log.append(f"Null values {null_count} found in '{style_id_column}'.")
+        error_mask = error_mask | null_mask
+
+    # 7. Check if Style Id exists in the COSTING table
+    df['Style Id_clean'] = df[style_id_column].str.strip()
+    invalid_style_mask = ~df['Style Id_clean'].isin(valid_style_codes)
+    invalid_style_count = invalid_style_mask.sum()
+    if invalid_style_mask.any():
+        log.append(f"{invalid_style_count} rows have 'Style Id' not found in COSTING table.")
+        error_mask = error_mask | invalid_style_mask
+
+    # 8. Check if Style Id matches quotation table and status is 'approved'
+    valid_style_approved_mask = df['Style Id_clean'].apply(
+        lambda style_id: style_id in quotation_data and quotation_data[style_id] == 'approved'
+    )
+    valid_style_approved_count = valid_style_approved_mask.sum()
+    if valid_style_approved_mask.any():
+        log.append(f"{valid_style_approved_count} rows have 'Style Id' matching 'approved' status in quotation table.")
+        error_mask = error_mask | ~valid_style_approved_mask
+
+    # Clean up temporary columns
+    df.drop(columns=['Style Id_clean'], inplace=True)
+
+    # If no errors were found, log accordingly
+    if not log:
+        log.append("- no validation error found for 'Style Id'.")
+
+    return error_mask, log
