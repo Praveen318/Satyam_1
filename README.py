@@ -1,5 +1,8 @@
-def check_fashion_grade_description(df):
-        
+def check_fashion_grade_code(df):
+    import pandas as pd
+    from sshtunnel import SSHTunnelForwarder
+    import psycopg2
+    
     # Initialize log list
     log = []
     
@@ -7,11 +10,12 @@ def check_fashion_grade_description(df):
     # Validation Steps
     # ----------------------
     # Initialize a boolean Series to track errors
-    fashion_grade_description_error_mask = pd.Series(False, index=df.index)
-    # 1. Check if 'Fashion grade description' column exists
-    if 'Fashion Grade Description' not in df.columns:
-        log.append("Error: DataFrame does not contain a 'Fashion Grade Description' column.")
-        return fashion_grade_description_error_mask, log
+    fashion_grade_code_error_mask = pd.Series(False, index=df.index)
+    
+    # 1. Check if 'Fashion Grade Code' column exists
+    if 'Fashion Grade Code' not in df.columns:
+        log.append("Error: DataFrame does not contain a 'Fashion Grade Code' column.")
+        return fashion_grade_code_error_mask, log
     
     # 2. Establish SSH Tunnel to the Costing Database
     try:
@@ -31,41 +35,40 @@ def check_fashion_grade_description(df):
             )
             cursor = conn.cursor()
             
-            # 4. Fetch Unique Valid fashion_grade_description from the 'fashion grade' Table
-            cursor.execute("SELECT DISTINCT fashion_grade FROM fashion_grade WHERE fashion_grade IS NOT NULL;")
-            fetched_fashion_grades = cursor.fetchall()
-            # Create a set of valid fashion_grade_description in lowercase for case-insensitive comparison
-            valid_fashion_grade_description = set(fashion_grade[0].strip().lower() for fashion_grade in fetched_fashion_grades if fashion_grade[0])
+            # 4. Fetch Unique Valid fashion_grade_code from the 'fashion grade' Table
+            cursor.execute("SELECT DISTINCT code FROM fashion_grade WHERE code IS NOT NULL;")
+            fetched_codes = cursor.fetchall()
+            # Create a set of valid fashion_grade_code for comparison
+            valid_fashion_grade_codes = set(int(code[0]) for code in fetched_codes if code[0].isdigit())
             
             cursor.close()
             conn.close()
     except Exception as e:
         log.append(f"Database connection error: {e}")
-        return df, log
+        return fashion_grade_code_error_mask, log
 
-    
-    # 5. Identify Null Entries in 'fashion_grade_description' Column
-    null_mask = df['Fashion Grade Description'].isnull()
+    # 5. Identify Null Entries in 'Fashion Grade Code' Column
+    null_mask = df['Fashion Grade Code'].isnull()
     null_count = null_mask.sum()
     if null_mask.any():
-        log.append(f"Null values {null_count} found in 'Fashion Grade Description'.")
-        fashion_grade_description_error_mask= fashion_grade_description_error_mask | null_mask
+        log.append(f"Null values {null_count} found in 'Fashion Grade Code'.")
+        fashion_grade_code_error_mask = fashion_grade_code_error_mask | null_mask
     
-    # 6. Identify Invalid Fashion Grade Description Entries (Case-Insensitive)
-    # Convert all Fashion Grade Description entries to lowercase for comparison
-    df['Fashion Grade Description_lower'] = df['Fashion Grade Description'].str.lower().str.strip()
-    invalid_mask = ~df['Fashion Grade Description_lower'].isin(valid_fashion_grade_description) & df['Fashion Grade Description'].notnull()
+    # 6. Convert 'Fashion Grade Code' to numeric for validation
+    df['Fashion Grade Code_numeric'] = pd.to_numeric(df['Fashion Grade Code'], errors='coerce')
+    
+    # Identify entries that are not in the valid set
+    invalid_mask = ~df['Fashion Grade Code_numeric'].isin(valid_fashion_grade_codes) & df['Fashion Grade Code_numeric'].notnull()
     invalid_count = invalid_mask.sum()
     if invalid_mask.any():
-        log.append(f"Invalid Fashion Grade Description {invalid_count} found in 'Fashion Grade Description_lower'.")
-        fashion_grade_description_error_mask = fashion_grade_description_error_mask | invalid_mask
+        log.append(f"Invalid Fashion Grade Code {invalid_count} found in 'Fashion Grade Code'.")
+        fashion_grade_code_error_mask = fashion_grade_code_error_mask | invalid_mask
     
-
     # If no errors were found, log accordingly
     if not log:
-        log.append("- no validation error found in Fashion Grade Description")
+        log.append("- no validation error found in Fashion Grade Code")
     
-
-    df.drop(columns=['Fashion Grade Description_lower'], inplace=True)
+    # Cleanup temporary column
+    df.drop(columns=['Fashion Grade Code_numeric'], inplace=True)
     
-    return fashion_grade_description_error_mask, log
+    return fashion_grade_code_error_mask, log
