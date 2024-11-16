@@ -1,3 +1,11 @@
+article_code
+hsn
+ean
+Variant Article Number	size , ean no, hsn code to be verified	STRING	costing engine	article	article_code = Variant Article Number
+EAN Number	size , ean no, hsn code to be verified	STRING	costing engine	article	
+HSN Code	size , ean no, hsn code to be verified	STRING	costing engine	article	
+
+
 def check_fashion_grade_code(df):
     import pandas as pd
     from sshtunnel import SSHTunnelForwarder
