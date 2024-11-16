@@ -1,4 +1,4 @@
-def check_otb_purchase_group_and_freight_cost(df):
+def check_store_code_and_dc_code(df):
     import pandas as pd
     from sshtunnel import SSHTunnelForwarder
     import psycopg2
@@ -9,14 +9,12 @@ def check_otb_purchase_group_and_freight_cost(df):
     # Initialize a boolean Series to track errors
     error_mask = pd.Series(False, index=df.index)
 
-    # Column names
-    otb_column = 'OTB Number'
-    purchase_group_column = 'Purchase Group'
+    # Column name
+    store_code_column = 'Store Code'
 
-    # 1. Check if required columns exist in the DataFrame
-    missing_columns = [col for col in [otb_column, purchase_group_column] if col not in df.columns]
-    if missing_columns:
-        log.append(f"Error: Missing columns in DataFrame: {', '.join(missing_columns)}.")
+    # 1. Check if required column exists in the DataFrame
+    if store_code_column not in df.columns:
+        log.append(f"Error: Missing column in DataFrame: '{store_code_column}'.")
         return error_mask, log
 
     # 2. Establish SSH Tunnel to the Procuro Database
@@ -37,11 +35,11 @@ def check_otb_purchase_group_and_freight_cost(df):
             )
             cursor = conn.cursor()
 
-            # 4. Fetch valid purchase groups and their freight costs
-            cursor.execute("SELECT purchase_group, freight_cost FROM purchase_group;")
+            # 4. Fetch valid site_code and corresponding dc_code from the database
+            cursor.execute("SELECT site_code, dc_code FROM site WHERE site_code IS NOT NULL;")
             fetched_data = cursor.fetchall()
-            purchase_group_data = {
-                str(row[0]).strip().lower(): row[1] for row in fetched_data
+            site_data = {
+                str(row[0]).strip(): row[1] for row in fetched_data
             }
 
             cursor.close()
@@ -50,34 +48,28 @@ def check_otb_purchase_group_and_freight_cost(df):
         log.append(f"Database connection error: {e}")
         return error_mask, log
 
-    # 5. Null and Mismatch Checks
-    # Normalize the purchase group column from the Excel file
-    df['Purchase Group_clean'] = df[purchase_group_column].fillna('').str.strip().str.lower()
+    # 5. Null Check for Store Code
+    null_mask = df[store_code_column].isnull()
+    null_count = null_mask.sum()
+    if null_mask.any():
+        log.append(f"Null values {null_count} found in '{store_code_column}'.")
+        error_mask = error_mask | null_mask
 
-    # Extract the last three characters of OTB Number and check against Purchase Group
-    df['OTB_last3'] = df[otb_column].fillna('').astype(str).str[-3:].str.lower()
-
-    # Check for mismatches
-    otb_mismatch_mask = df['OTB_last3'] != df['Purchase Group_clean']
-    otb_mismatch_count = otb_mismatch_mask.sum()
-    if otb_mismatch_mask.any():
-        log.append(f"{otb_mismatch_count} rows have mismatched 'OTB Number' and 'Purchase Group'.")
-        error_mask = error_mask | otb_mismatch_mask
-
-    # Check for null or invalid freight costs in the database
-    invalid_freight_mask = df['Purchase Group_clean'].apply(
-        lambda pg: pg not in purchase_group_data or purchase_group_data[pg] is None
+    # 6. Check for invalid Store Codes
+    df['Store Code_clean'] = df[store_code_column].fillna('').str.strip()
+    invalid_mask = df['Store Code_clean'].apply(
+        lambda code: code not in site_data or site_data[code] is None
     )
-    invalid_freight_count = invalid_freight_mask.sum()
-    if invalid_freight_mask.any():
-        log.append(f"{invalid_freight_count} rows have null or invalid freight costs for the 'Purchase Group'.")
-        error_mask = error_mask | invalid_freight_mask
+    invalid_count = invalid_mask.sum()
+    if invalid_mask.any():
+        log.append(f"{invalid_count} rows have invalid 'Store Code' or missing 'dc_code' in the database.")
+        error_mask = error_mask | invalid_mask
 
     # Cleanup temporary columns
-    df.drop(columns=['Purchase Group_clean', 'OTB_last3'], inplace=True)
+    df.drop(columns=['Store Code_clean'], inplace=True)
 
     # If no errors were found, log accordingly
     if not log:
-        log.append("- no validation error found for 'OTB Number' and 'Purchase Group'.")
+        log.append("- no validation error found for 'Store Code'.")
 
     return error_mask, log
