@@ -1,30 +1,27 @@
-article_code
-hsn
-ean
-Variant Article Number	size , ean no, hsn code to be verified	STRING	costing engine	article	article_code = Variant Article Number
-EAN Number	size , ean no, hsn code to be verified	STRING	costing engine	article	
-HSN Code	size , ean no, hsn code to be verified	STRING	costing engine	article	
-
-
-def check_fashion_grade_code(df):
+def check_variant_ean_hsn(df):
     import pandas as pd
     from sshtunnel import SSHTunnelForwarder
     import psycopg2
-    
+
     # Initialize log list
     log = []
-    
-    # ----------------------
-    # Validation Steps
-    # ----------------------
-    # Initialize a boolean Series to track errors
-    fashion_grade_code_error_mask = pd.Series(False, index=df.index)
-    
-    # 1. Check if 'Fashion Grade Code' column exists
-    if 'Fashion Grade Code' not in df.columns:
-        log.append("Error: DataFrame does not contain a 'Fashion Grade Code' column.")
-        return fashion_grade_code_error_mask, log
-    
+
+    # Initialize a boolean Series to track errors for each column
+    error_mask = pd.Series(False, index=df.index)
+
+    # Column mappings
+    column_mappings = {
+        'Variant Article Number': 'article_code',
+        'EAN Number': 'ean',
+        'HSN Code': 'hsn'
+    }
+
+    # 1. Check if required columns exist in the DataFrame
+    missing_columns = [col for col in column_mappings.keys() if col not in df.columns]
+    if missing_columns:
+        log.append(f"Error: Missing columns in DataFrame: {', '.join(missing_columns)}.")
+        return error_mask, log
+
     # 2. Establish SSH Tunnel to the Costing Database
     try:
         with SSHTunnelForwarder(
@@ -42,41 +39,43 @@ def check_fashion_grade_code(df):
                 password=PROCURO_PASSWORD
             )
             cursor = conn.cursor()
-            
-            # 4. Fetch Unique Valid fashion_grade_code from the 'fashion grade' Table
-            cursor.execute("SELECT DISTINCT code FROM fashion_grade WHERE code IS NOT NULL;")
-            fetched_codes = cursor.fetchall()
-            # Create a set of valid fashion_grade_code for comparison
-            valid_fashion_grade_codes = set(int(code[0]) for code in fetched_codes if code[0].isdigit())
-            
+
+            # 4. Fetch valid combinations of article_code, ean, and hsn
+            cursor.execute("SELECT article_code, ean, hsn FROM your_table_name WHERE article_code IS NOT NULL AND ean IS NOT NULL AND hsn IS NOT NULL;")
+            valid_combinations = cursor.fetchall()
+            valid_combinations_set = set(valid_combinations)
+
             cursor.close()
             conn.close()
     except Exception as e:
         log.append(f"Database connection error: {e}")
-        return fashion_grade_code_error_mask, log
+        return error_mask, log
 
-    # 5. Identify Null Entries in 'Fashion Grade Code' Column
-    null_mask = df['Fashion Grade Code'].isnull()
-    null_count = null_mask.sum()
-    if null_mask.any():
-        log.append(f"Null values {null_count} found in 'Fashion Grade Code'.")
-        fashion_grade_code_error_mask = fashion_grade_code_error_mask | null_mask
-    
-    # 6. Convert 'Fashion Grade Code' to numeric for validation
-    df['Fashion Grade Code_numeric'] = pd.to_numeric(df['Fashion Grade Code'], errors='coerce')
-    
-    # Identify entries that are not in the valid set
-    invalid_mask = ~df['Fashion Grade Code_numeric'].isin(valid_fashion_grade_codes) & df['Fashion Grade Code_numeric'].notnull()
-    invalid_count = invalid_mask.sum()
-    if invalid_mask.any():
-        log.append(f"Invalid Fashion Grade Code {invalid_count} found in 'Fashion Grade Code'.")
-        fashion_grade_code_error_mask = fashion_grade_code_error_mask | invalid_mask
-    
+    # 5. Check for nulls in the specified columns
+    for excel_col in column_mappings.keys():
+        null_mask = df[excel_col].isnull()
+        null_count = null_mask.sum()
+        if null_mask.any():
+            log.append(f"Null values {null_count} found in '{excel_col}'.")
+            error_mask = error_mask | null_mask
+
+    # 6. Check for mismatched combinations
+    df['Combined_Keys'] = list(zip(
+        df['Variant Article Number'].fillna('').astype(str),
+        df['EAN Number'].fillna('').astype(str),
+        df['HSN Code'].fillna('').astype(str)
+    ))
+    mismatch_mask = ~df['Combined_Keys'].isin(valid_combinations_set)
+    mismatch_count = mismatch_mask.sum()
+    if mismatch_mask.any():
+        log.append(f"{mismatch_count} rows have mismatched combinations of 'Variant Article Number', 'EAN Number', and 'HSN Code'.")
+        error_mask = error_mask | mismatch_mask
+
+    # Cleanup temporary column
+    df.drop(columns=['Combined_Keys'], inplace=True)
+
     # If no errors were found, log accordingly
     if not log:
-        log.append("- no validation error found in Fashion Grade Code")
-    
-    # Cleanup temporary column
-    df.drop(columns=['Fashion Grade Code_numeric'], inplace=True)
-    
-    return fashion_grade_code_error_mask, log
+        log.append("- no validation error found in 'Variant Article Number', 'EAN Number', and 'HSN Code'.")
+
+    return error_mask, log
