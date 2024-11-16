@@ -6,7 +6,7 @@ def check_variant_ean_hsn(df):
     # Initialize log list
     log = []
 
-    # Initialize a boolean Series to track errors for each column
+    # Initialize a boolean Series to track errors
     error_mask = pd.Series(False, index=df.index)
 
     # Column mappings
@@ -40,10 +40,10 @@ def check_variant_ean_hsn(df):
             )
             cursor = conn.cursor()
 
-            # 4. Fetch valid combinations of article_code, ean, and hsn
-            cursor.execute("SELECT article_code, ean, hsn FROM your_table_name WHERE article_code IS NOT NULL AND ean IS NOT NULL AND hsn IS NOT NULL;")
-            valid_combinations = cursor.fetchall()
-            valid_combinations_set = set(valid_combinations)
+            # 4. Fetch valid combinations of article_code, ean, and hsn from the "article" table
+            cursor.execute("SELECT article_code, ean, hsn FROM article WHERE article_code IS NOT NULL AND ean IS NOT NULL AND hsn IS NOT NULL;")
+            fetched_rows = cursor.fetchall()
+            valid_combinations = set((str(row[0]).strip(), str(row[1]).strip(), str(row[2]).strip()) for row in fetched_rows)
 
             cursor.close()
             conn.close()
@@ -51,7 +51,7 @@ def check_variant_ean_hsn(df):
         log.append(f"Database connection error: {e}")
         return error_mask, log
 
-    # 5. Check for nulls in the specified columns
+    # 5. Null Check for each column
     for excel_col in column_mappings.keys():
         null_mask = df[excel_col].isnull()
         null_count = null_mask.sum()
@@ -59,20 +59,28 @@ def check_variant_ean_hsn(df):
             log.append(f"Null values {null_count} found in '{excel_col}'.")
             error_mask = error_mask | null_mask
 
-    # 6. Check for mismatched combinations
+    # 6. Prepare DataFrame for Combination Matching
+    # Strip and fill NaN with empty strings for comparison
+    df['Variant Article Number_clean'] = df['Variant Article Number'].fillna('').astype(str).str.strip()
+    df['EAN Number_clean'] = df['EAN Number'].fillna('').astype(str).str.strip()
+    df['HSN Code_clean'] = df['HSN Code'].fillna('').astype(str).str.strip()
+
+    # Combine cleaned columns into tuples for comparison
     df['Combined_Keys'] = list(zip(
-        df['Variant Article Number'].fillna('').astype(str),
-        df['EAN Number'].fillna('').astype(str),
-        df['HSN Code'].fillna('').astype(str)
+        df['Variant Article Number_clean'],
+        df['EAN Number_clean'],
+        df['HSN Code_clean']
     ))
-    mismatch_mask = ~df['Combined_Keys'].isin(valid_combinations_set)
+
+    # 7. Check for mismatched combinations
+    mismatch_mask = ~df['Combined_Keys'].isin(valid_combinations)
     mismatch_count = mismatch_mask.sum()
     if mismatch_mask.any():
         log.append(f"{mismatch_count} rows have mismatched combinations of 'Variant Article Number', 'EAN Number', and 'HSN Code'.")
         error_mask = error_mask | mismatch_mask
 
-    # Cleanup temporary column
-    df.drop(columns=['Combined_Keys'], inplace=True)
+    # Cleanup temporary columns
+    df.drop(columns=['Variant Article Number_clean', 'EAN Number_clean', 'HSN Code_clean', 'Combined_Keys'], inplace=True)
 
     # If no errors were found, log accordingly
     if not log:
