@@ -89,12 +89,12 @@ def check_qty_positive(df):
         log.append(f"Error: Missing column in DataFrame: '{qty_column}'.")
         return pd.Series(False, index=df.index), log
 
-    # 2. Validate that Qty > 0
-    invalid_mask = df[qty_column].fillna(0) <= 0
+    # 2. Validate that Qty > 0 and is an integer
+    invalid_mask = (df[qty_column].fillna(0) <= 0) | ~df[qty_column].apply(lambda x: isinstance(x, int))
     invalid_count = invalid_mask.sum()
 
     if invalid_mask.any():
-        log.append(f"{invalid_count} rows have 'Qty' less than or equal to 0.")
+        log.append(f"{invalid_count} rows have 'Qty' less than or equal to 0 or are not integers.")
 
     # If no errors were found, log accordingly
     if not log:
