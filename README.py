@@ -130,3 +130,33 @@ def check_uom_ea(df):
 
     return invalid_mask, log
 
+def check_priority_valid(df):
+    import pandas as pd
+
+    # Initialize log list
+    log = []
+
+    # Column name
+    priority_column = 'Priority'
+
+    # 1. Check if the required column exists in the DataFrame
+    if priority_column not in df.columns:
+        log.append(f"Error: Missing column in DataFrame: '{priority_column}'.")
+        return pd.Series(False, index=df.index), log
+
+    # 2. Define valid priority values
+    valid_priorities = ['P1', 'P2', 'P3']
+
+    # 3. Validate that Priority is one of 'P1', 'P2', or 'P3' (case-insensitive)
+    invalid_mask = ~df[priority_column].fillna('').str.strip().str.upper().isin(valid_priorities)
+    invalid_count = invalid_mask.sum()
+
+    if invalid_mask.any():
+        log.append(f"{invalid_count} rows have invalid 'Priority'. Only 'P1', 'P2', or 'P3' are allowed.")
+
+    # If no errors were found, log accordingly
+    if not log:
+        log.append("- no validation error found for 'Priority'.")
+
+    return invalid_mask, log
+
