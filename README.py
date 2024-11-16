@@ -90,17 +90,22 @@ def check_qty_positive(df):
         return pd.Series(False, index=df.index), log
 
     # 2. Validate that Qty > 0 and is an integer
-    invalid_mask = (df[qty_column].fillna(0) <= 0) | ~df[qty_column].apply(lambda x: isinstance(x, int))
-    invalid_count = invalid_mask.sum()
+    # This will check if values in Qty are integers and greater than 0
+    qty_valid_mask = df[qty_column].apply(lambda x: isinstance(x, int) and x > 0)
 
-    if invalid_mask.any():
-        log.append(f"{invalid_count} rows have 'Qty' less than or equal to 0 or are not integers.")
+    # 3. Identify invalid entries (not integers or less than or equal to 0)
+    invalid_qty_mask = ~qty_valid_mask
+    invalid_qty_count = invalid_qty_mask.sum()
+
+    if invalid_qty_mask.any():
+        log.append(f"{invalid_qty_count} rows have 'Qty' less than or equal to 0 or are not integers.")
 
     # If no errors were found, log accordingly
     if not log:
         log.append("- no validation error found for 'Qty'.")
 
-    return invalid_mask, log
+    return invalid_qty_mask, log
+
 
 
 def check_uom_ea(df):
