@@ -73,3 +73,60 @@ def check_store_code_and_dc_code(df):
         log.append("- no validation error found for 'Store Code'.")
 
     return error_mask, log
+
+
+def check_qty_positive(df):
+    import pandas as pd
+
+    # Initialize log list
+    log = []
+
+    # Column name
+    qty_column = 'Qty'
+
+    # 1. Check if the required column exists in the DataFrame
+    if qty_column not in df.columns:
+        log.append(f"Error: Missing column in DataFrame: '{qty_column}'.")
+        return pd.Series(False, index=df.index), log
+
+    # 2. Validate that Qty > 0
+    invalid_mask = df[qty_column].fillna(0) <= 0
+    invalid_count = invalid_mask.sum()
+
+    if invalid_mask.any():
+        log.append(f"{invalid_count} rows have 'Qty' less than or equal to 0.")
+
+    # If no errors were found, log accordingly
+    if not log:
+        log.append("- no validation error found for 'Qty'.")
+
+    return invalid_mask, log
+
+
+def check_uom_ea(df):
+    import pandas as pd
+
+    # Initialize log list
+    log = []
+
+    # Column name
+    uom_column = 'UOM'
+
+    # 1. Check if the required column exists in the DataFrame
+    if uom_column not in df.columns:
+        log.append(f"Error: Missing column in DataFrame: '{uom_column}'.")
+        return pd.Series(False, index=df.index), log
+
+    # 2. Validate that UOM is 'EA' (case-insensitive)
+    invalid_mask = df[uom_column].fillna('').str.strip().str.upper() != 'EA'
+    invalid_count = invalid_mask.sum()
+
+    if invalid_mask.any():
+        log.append(f"{invalid_count} rows have 'UOM' not equal to 'EA'.")
+
+    # If no errors were found, log accordingly
+    if not log:
+        log.append("- no validation error found for 'UOM'.")
+
+    return invalid_mask, log
+
